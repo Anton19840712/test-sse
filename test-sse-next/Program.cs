@@ -1,6 +1,8 @@
 ﻿using System.Net;
 using System.Text;
 using Serilog;
+using System.Collections.Concurrent;
+
 class Program
 {
 	static async Task Main(string[] args)
@@ -29,7 +31,7 @@ class Program
 public class SseBackgroundService
 {
 	private readonly HttpListener _listener;
-	private readonly List<HttpListenerResponse> _clients;
+	private readonly ConcurrentBag<HttpListenerResponse> _clients;  // Изменено на ConcurrentBag
 	private readonly List<string> _messages; // Список сообщений
 	private Timer _messageTimer;  // Таймер для отправки сообщений каждую секунду
 	private int _counter;
@@ -38,7 +40,7 @@ public class SseBackgroundService
 	{
 		_listener = new HttpListener();
 		_listener.Prefixes.Add("http://*:52799/sse/");
-		_clients = new List<HttpListenerResponse>();  // Инициализируем список клиентов
+		_clients = new ConcurrentBag<HttpListenerResponse>();  // Инициализируем ConcurrentBag для клиентов
 		_messages = new List<string>();  // Список для хранения сообщений
 		_counter = 0; // Инициализация счётчика
 	}
@@ -86,12 +88,9 @@ public class SseBackgroundService
 				_messages.Add(requestBody);
 
 				// Отправляем сообщение всем подключённым клиентам
-				lock (_clients)
+				foreach (var client in _clients)
 				{
-					foreach (var client in _clients)
-					{
-						SendSseMessageAsync(client, requestBody, stoppingToken);
-					}
+					SendSseMessageAsync(client, requestBody, stoppingToken);
 				}
 
 				// Ответ на запрос
@@ -111,10 +110,7 @@ public class SseBackgroundService
 				Log.Information("New SSE connection established");
 
 				// Добавляем нового клиента в список
-				lock (_clients)
-				{
-					_clients.Add(response);
-				}
+				_clients.Add(response);
 
 				// Отправляем все накопленные сообщения новому клиенту
 				foreach (var message in _messages)
@@ -129,10 +125,7 @@ public class SseBackgroundService
 				}
 
 				// Удаляем клиента из списка при закрытии соединения
-				lock (_clients)
-				{
-					_clients.Remove(response);
-				}
+				_clients.TryTake(out _);  // Попытка безопасно удалить клиента
 
 				response.Close();
 				Log.Information("SSE connection closed");
@@ -161,38 +154,35 @@ public class SseBackgroundService
 	private void SendGeneratedMessages(object state)
 	{
 		var stoppingToken = (CancellationToken)state;
-		lock (_clients)
+
+		// Создаем список клиентов для которых необходимо удалить соединение
+		var disconnectedClients = new List<HttpListenerResponse>();
+
+		foreach (var client in _clients)
 		{
-			// Создаем список клиентов для которых необходимо удалить соединение
-			var disconnectedClients = new List<HttpListenerResponse>();
-
-			foreach (var client in _clients)
+			try
 			{
-				try
-				{
-					var message = $"Generated message #{_counter++} at {DateTime.Now}";
-					_messages.Add(message); // Сохраняем сообщение в список
+				var message = $"Generated message #{_counter++} at {DateTime.Now}";
+				_messages.Add(message); // Сохраняем сообщение в список
 
-					// Отправляем сообщение, если клиент всё ещё подключен
-					SendSseMessageAsync(client, message, stoppingToken).Wait();
-				}
-				catch (Exception ex)
-				{
-					Log.Error($"Error sending message to client: {ex.Message}");
-
-					// Если возникла ошибка, предполагаем, что клиент отключен
-					disconnectedClients.Add(client);
-				}
+				// Отправляем сообщение, если клиент всё ещё подключен
+				SendSseMessageAsync(client, message, stoppingToken).Wait();
 			}
-
-			// Удаляем отключившихся клиентов из списка
-			foreach (var disconnectedClient in disconnectedClients)
+			catch (Exception ex)
 			{
-				_clients.Remove(disconnectedClient);
+				Log.Error($"Error sending message to client: {ex.Message}");
+
+				// Если возникла ошибка, предполагаем, что клиент отключен
+				disconnectedClients.Add(client);
 			}
 		}
-	}
 
+		// Удаляем отключившихся клиентов из списка
+		foreach (var disconnectedClient in disconnectedClients)
+		{
+			_clients.TryTake(out _); // Без блокировки, безопасное удаление
+		}
+	}
 
 	public async Task StopAsync(CancellationToken cancellationToken)
 	{
