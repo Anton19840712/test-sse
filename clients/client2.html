@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSE Example</title>
+</head>
+<body>
+    <h1>Server-Sent Events (SSE)-2</h1>
+    <p id="status">Status: Not connected</p>
+    <button id="connectButton" onclick="toggleConnection()">Connect to Server</button>
+
+    <script>
+        let evtSource; // Переменная для EventSource
+
+        function toggleConnection() {
+            const connectButton = document.getElementById('connectButton');
+
+            if (evtSource) {
+                // Отключаемся
+                evtSource.close();
+                evtSource = null;
+                connectButton.textContent = 'Connect to Server'; // Меняем текст кнопки
+                document.getElementById("status").textContent = "Disconnected from server.";
+            } else {
+                // Подключаемся
+                connectToServer();
+                connectButton.textContent = 'Disconnect from Server'; // Меняем текст кнопки
+            }
+        }
+
+        function connectToServer() {
+            const serverUrl = 'http://localhost:52799/sse'; // SSE URL
+            evtSource = new EventSource(serverUrl);
+
+            evtSource.onopen = () => {
+                const connectedTime = new Date().toLocaleString();
+                console.log(`Connected to server at ${connectedTime}`);
+                document.getElementById("status").textContent = `Connected to server at ${connectedTime}.`;
+            };
+
+            evtSource.onmessage = (e) => {
+                console.log('Received:', e.data); // Лог полученного сообщения
+            };
+
+            evtSource.onerror = (e) => {
+                const disconnectedTime = new Date().toLocaleString();
+                if (e.readyState === EventSource.CLOSED) {
+                    console.error(`Connection lost (server closed) at ${disconnectedTime}`);
+                    document.getElementById("status").textContent = `Connection lost at ${disconnectedTime}.`;
+                } else {
+                    console.error(`Error: Server not accessible at ${disconnectedTime}`);
+                    document.getElementById("status").textContent = `Error: Server not accessible at ${disconnectedTime}.`;
+                }
+                evtSource.close(); // Закрываем соединение при ошибке
+            };
+
+            window.addEventListener('beforeunload', () => {
+                if (evtSource) {
+                    const exitTime = new Date().toLocaleString();
+                    evtSource.close(); // Закрываем соединение при закрытии страницы
+                    console.log(`Connection closed on page exit at ${exitTime}`);
+                    document.getElementById("status").textContent = `Connection closed on exit at ${exitTime}.`;
+                }
+            });
+        }
+    </script>
+</body>
+</html>
