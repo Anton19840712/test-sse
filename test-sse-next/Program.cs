@@ -87,9 +87,6 @@ public class SseBackgroundService
 				// Добавляем сообщение в список
 				_messages.Add(requestBody);
 
-				// Записываем сообщение в файл
-				SaveMessageToFile(requestBody);
-
 				// Отправляем сообщение всем подключённым клиентам
 				lock (_clients)
 				{
@@ -168,28 +165,36 @@ public class SseBackgroundService
 		var stoppingToken = (CancellationToken)state;
 		lock (_clients)
 		{
+			// Создаем список клиентов для которых необходимо удалить соединение
+			var disconnectedClients = new List<HttpListenerResponse>();
+
 			foreach (var client in _clients)
 			{
-				var message = $"Generated message #{_counter++} at {DateTime.Now}";
-				_messages.Add(message); // Сохраняем сообщение в список
-				SaveMessageToFile(message); // Записываем сообщение в файл
-				SendSseMessageAsync(client, message, stoppingToken).Wait();
+				try
+				{
+					var message = $"Generated message #{_counter++} at {DateTime.Now}";
+					_messages.Add(message); // Сохраняем сообщение в список
+
+					// Отправляем сообщение, если клиент всё ещё подключен
+					SendSseMessageAsync(client, message, stoppingToken).Wait();
+				}
+				catch (Exception ex)
+				{
+					Log.Error($"Error sending message to client: {ex.Message}");
+
+					// Если возникла ошибка, предполагаем, что клиент отключен
+					disconnectedClients.Add(client);
+				}
+			}
+
+			// Удаляем отключившихся клиентов из списка
+			foreach (var disconnectedClient in disconnectedClients)
+			{
+				_clients.Remove(disconnectedClient);
 			}
 		}
 	}
 
-	// Сохраняем сообщение в файл
-	private void SaveMessageToFile(string message)
-	{
-		try
-		{
-			File.AppendAllText(MessageLogFilePath, $"{message}\n");
-		}
-		catch (Exception ex)
-		{
-			Log.Error($"Error saving message to file: {ex.Message}");
-		}
-	}
 
 	public async Task StopAsync(CancellationToken cancellationToken)
 	{
