@@ -90,7 +90,7 @@ public class SseBackgroundService
 				// Отправляем сообщение всем подключённым клиентам
 				foreach (var client in _clients)
 				{
-					SendSseMessageAsync(client, requestBody, stoppingToken);
+					await SendSseMessageAsync(client, requestBody, stoppingToken);
 				}
 
 				// Ответ на запрос
