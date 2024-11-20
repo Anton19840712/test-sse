@@ -201,30 +201,3 @@ public class SseBackgroundService
 		await Task.CompletedTask;
 	}
 }
-
-public class MessageBuffer
-{
-	private readonly ConcurrentQueue<string> _messages = new();
-	private readonly int _maxMessages;
-
-	public MessageBuffer(int maxMessages)
-	{
-		_maxMessages = maxMessages;
-	}
-
-	public void AddMessage(string message)
-	{
-		_messages.Enqueue(message);
-
-		// Удаляем старые сообщения, если превышен лимит
-		while (_messages.Count > _maxMessages)
-		{
-			_messages.TryDequeue(out _);
-		}
-	}
-
-	public List<string> GetAllMessages()
-	{
-		return _messages.ToList();
-	}
-}
