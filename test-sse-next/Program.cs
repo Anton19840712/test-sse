@@ -34,7 +34,6 @@ public class SseBackgroundService
 	private readonly List<string> _messages; // Список сообщений
 	private Timer _messageTimer;  // Таймер для отправки сообщений каждую секунду
 	private int _counter;
-	private const string MessageLogFilePath = "messages.log"; // Путь к файлу для хранения сообщений
 
 	public SseBackgroundService()
 	{
